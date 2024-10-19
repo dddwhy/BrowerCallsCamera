@@ -1,39 +1,184 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>高级网页相机应用</title>
     <style>
-        #camera {
-            float: left;
-            margin: 20px;
-            border: 1px solid #ccc;
-
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #f0f0f0;
         }
-        #contentHolder {
-            width: 300px;
-            height: 300px;
-            border: 1px solid #ccc;
-            margin-bottom: 10px;
+        #videoContainer {
+            width: 100%;
+            max-width: 640px;
+            margin-bottom: 20px;
         }
-        #imgBox{
-            width: 200px;
-            margin: 60px 20px 20px;
+        #videoElement {
+            width: 100%;
+            max-height: 80vh;
+            border: 3px solid #333;
+            border-radius: 10px;
+            background-color: #000;
+        }
+        #controls {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #statusMessage {
+            text-align: center;
+            margin-bottom: 20px;
         }
     </style>
 </head>
 <body>
-    <h1>还未兼容老版本浏览器</h1>
-    <div id="camera">
-        <div id="contentHolder">
-            <video src="" id="video" width="300" height="300"></video>
-            <canvas style="display: none;" id="canvas" width="300" height="300"></canvas>
-        </div>
-        <button >拍照并下载</button>
+    <div id="videoContainer">
+        <video id="videoElement" autoplay playsinline></video>
     </div>
-</body>
-<script src="./BrowerCallsCamera.js">
+    <div id="controls">
+        <button id="startButton">开始摄像头</button>
+        <button id="stopButton" disabled>停止摄像头</button>
+        <button id="switchButton" disabled>切换摄像头</button>
+    </div>
+    <div id="statusMessage"></div>
 
-</script>
+    <script>
+        const videoElement = document.getElementById('videoElement');
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const switchButton = document.getElementById('switchButton');
+        const statusMessage = document.getElementById('statusMessage');
+        let stream = null;
+        let facingMode = 'environment'; // 默认使用后置摄像头
+
+        function showMessage(message) {
+            statusMessage.textContent = message;
+        }
+
+        async function requestPersistentPermission() {
+            try {
+                if (navigator.permissions) {
+                    const permissionStatus = await navigator.permissions.query({ name: 'camera' });
+                    
+                    if (permissionStatus.state === 'granted') {
+                        showMessage('已经拥有摄像头权限');
+                        return true;
+                    } else if (permissionStatus.state === 'prompt') {
+                        showMessage('需要请求摄像头权限');
+                        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facingMode } });
+                        stream.getTracks().forEach(track => track.stop());
+                        showMessage('成功获得摄像头权限');
+                        return true;
+                    } else {
+                        showMessage('摄像头权限被拒绝');
+                        return false;
+                    }
+                } else {
+                    showMessage('浏览器不支持 Permissions API，将直接请求权限');
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facingMode } });
+                    stream.getTracks().forEach(track => track.stop());
+                    return true;
+                }
+            } catch (error) {
+                console.error('请求权限时发生错误:', error);
+                showMessage('请求权限时发生错误: ' + error.message);
+                return false;
+            }
+        }
+
+        async function startCamera() {
+            try {
+                const hasPermission = await requestPersistentPermission();
+                if (!hasPermission) {
+                    showMessage('无法获得摄像头权限，请在浏览器设置中允许访问');
+                    return;
+                }
+
+                showMessage('正在启动摄像头...');
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: facingMode } 
+                });
+                videoElement.srcObject = stream;
+                startButton.disabled = true;
+                stopButton.disabled = false;
+                switchButton.disabled = false;
+                showMessage('摄像头已启动');
+            } catch (error) {
+                console.error("Error accessing the camera", error);
+                showMessage('无法访问摄像头：' + error.message);
+            }
+        }
+
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                videoElement.srcObject = null;
+                startButton.disabled = false;
+                stopButton.disabled = true;
+                switchButton.disabled = true;
+                showMessage('摄像头已停止');
+            }
+        }
+
+        async function switchCamera() {
+            facingMode = facingMode === 'user' ? 'environment' : 'user';
+            showMessage('正在切换摄像头...');
+            stopCamera();
+            await startCamera();
+        }
+
+        startButton.addEventListener('click', startCamera);
+        stopButton.addEventListener('click', stopCamera);
+        switchButton.addEventListener('click', switchCamera);
+
+        async function setupPermissionChangeListener() {
+            if (navigator.permissions) {
+                const permissionStatus = await navigator.permissions.query({ name: 'camera' });
+                permissionStatus.onchange = function() {
+                    console.log('摄像头权限状态变为：', this.state);
+                    if (this.state === 'granted') {
+                        showMessage('摄像头权限已授予');
+                        startButton.disabled = false;
+                    } else {
+                        showMessage('摄像头权限已被撤销');
+                        stopCamera();
+                    }
+                };
+            }
+        }
+
+        setupPermissionChangeListener();
+
+        // 初始检查权限
+        requestPersistentPermission().then(hasPermission => {
+            if (hasPermission) {
+                showMessage('摄像头权限已授予，请点击"开始摄像头"按钮');
+            } else {
+                showMessage('需要摄像头权限，请点击"开始摄像头"按钮并允许访问');
+            }
+        });
+    </script>
+</body>
 </html>
